@@ -122,6 +122,12 @@ type (
 	}
 )
 
+type UnaryExpression struct {
+	Node
+	Operator string     `json:"operator"`
+	Operand  Expression `json:"operand"`
+}
+
 // A BinaryExpression is any expression of the form "operand operator operand"
 // including arithmetic (+, -, *, /), logical operators (and, or), and
 // comparisons (=, !=, <, <=, >, >=)
@@ -132,16 +138,25 @@ type BinaryExpression struct {
 	RHS      Expression `json:"rhs"`
 }
 
+type ConditionalExpression struct {
+	Node
+	Condition Expression `json:"condition"`
+	Then      Expression `json:"then"`
+	Else      Expression `json:"else"`
+}
+
 type FunctionCall struct {
 	Node
 	Function string       `json:"function"`
 	Args     []Expression `json:"args"`
 }
 
-func (*BinaryExpression) exprNode() {}
-func (*FunctionCall) exprNode()     {}
-func (*Literal) exprNode()          {}
-func (*FieldRead) exprNode()        {}
+func (*UnaryExpression) exprNode()       {}
+func (*BinaryExpression) exprNode()      {}
+func (*ConditionalExpression) exprNode() {}
+func (*FunctionCall) exprNode()          {}
+func (*Literal) exprNode()               {}
+func (*FieldRead) exprNode()             {}
 
 // ----------------------------------------------------------------------------
 // Procs

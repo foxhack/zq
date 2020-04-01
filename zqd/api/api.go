@@ -20,7 +20,7 @@ type Error struct {
 // Error implements the error interface so this struct can be passed around
 // as an error.  The error string is the JSON encoding of the Error struct.
 // with indentation.
-func (e *Error) Error() string {
+func (e Error) Error() string {
 	b, err := json.MarshalIndent(e, "", "\t")
 	if err != nil {
 		// this shouldn't happen
@@ -112,6 +112,7 @@ type PacketPostStatus struct {
 	UpdateTime     nano.Ts  `json:"update_time"`
 	PacketSize     int64    `json:"packet_total_size" unit:"bytes"`
 	PacketReadSize int64    `json:"packet_read_size" unit:"bytes"`
+	SnapshotCount  int      `json:"snapshot_count"`
 	MinTime        *nano.Ts `json:"min_time,omitempty"`
 	MaxTime        *nano.Ts `json:"max_time,omitempty"`
 }

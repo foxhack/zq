@@ -296,6 +296,14 @@ func getString(s interface{}) string {
 	return string(a)
 }
 
+func makeUnaryExpr(opIn, operandIn interface{}) ast.Expression {
+	return &ast.UnaryExpression{
+		ast.Node{"UnaryExpr"},
+		opIn.(string),
+		operandIn.(ast.Expression),
+	}
+}
+
 func makeBinaryExprChain(firstIn, restIn interface{}) ast.Expression {
 	first := firstIn.(ast.Expression)
 	if restIn == nil {
@@ -314,6 +322,15 @@ func makeBinaryExprChain(firstIn, restIn interface{}) ast.Expression {
 		result = &ast.BinaryExpression{ast.Node{"BinaryExpr"}, op, result, term}
 	}
 	return result
+}
+
+func makeConditionalExpr(condition, thenClause, elseClause interface{}) ast.Expression {
+	return &ast.ConditionalExpression{
+		ast.Node{"ConditionalExpr"},
+		condition.(ast.Expression),
+		thenClause.(ast.Expression),
+		elseClause.(ast.Expression),
+	}
 }
 
 func makeFunctionCall(fn, argsIn interface{}) ast.Expression {

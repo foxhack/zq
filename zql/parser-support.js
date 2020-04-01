@@ -86,6 +86,7 @@ function makeHeadProc(count) { return { op: "HeadProc", count }; }
 function makeTailProc(count) { return { op: "TailProc", count }; }
 function makeUniqProc(cflag) { return { op: "TailProc", cflag }; }
 function makeFilterProc(filter) { return { op: "FilterProc", filter }; }
+function makePutProc(target, expression) { return { op: "PutProc", target, expression }; }
 function makeReducer(op, var_, field) {
   if (field === null) { field = undefined; }
   return { op, var: var_, field };
@@ -108,12 +109,20 @@ function makeGroupByProc(duration, limit, keys, reducers) {
   return { op: "GroupByProc", keys, reducers, duration, limit };
 }
 
+function makeUnaryExpr(operator, operand) {
+  return { op: "UnaryExpr", operator, operand };
+}
+
 function makeBinaryExprChain(first, rest) {
   let ret = first
   for (let part of rest) {
     ret = { op: "BinaryExpr", operator: part[1], lhs: ret, rhs: part[3] };
   }
   return ret
+}
+
+function makeConditionalExpr(condition, thenClause, elseClause) {
+  return { op: "ConditionalExpr", condition, then: thenClause, else: elseClause };
 }
 
 function makeFunctionCall(fn, args) {

@@ -50,22 +50,6 @@ func NewReader(reader io.Reader, zctx *resolver.Context) (*Reader, error) {
 	}, nil
 }
 
-// A Rule contains one or more matches and the name of a descriptor
-// key (in the companion Descriptors map).
-type Rule struct {
-	Name       string `json:"name"`
-	Value      string `json:"value"`
-	Descriptor string `json:"descriptor"`
-}
-
-// A TypeConfig contains a map of Descriptors, keyed by name, and a
-// list of rules defining which records should be mapped into which
-// descriptor.
-type TypeConfig struct {
-	Descriptors map[string][]interface{} `json:"descriptors"`
-	Rules       []Rule                   `json:"rules"`
-}
-
 // typeRules is used internally and is derived from TypeConfig by
 // converting its descriptors into *zng.TypeRecord s for use by the
 // ndjson typed parser.
@@ -74,12 +58,13 @@ type typeRules struct {
 	rules       []Rule
 }
 
-// SetTypeConfig adds a TypeConfig to the reader. Its use is optional,
-// but if used, it should be called before records are processed.  In
-// the absence of a TypeConfig, records are all parsed with the
+// ConfigureTypes adds a TypeConfig to the reader. Its should be
+// called before input lines are processed. If a non-empty defaultPath
+// is passed, it is used for json objects without a _path.
+// In the absence of a TypeConfig, records are all parsed with the
 // inferParser. If a TypeConfig is present, records are parsed
 // with the typeParser.
-func (r *Reader) SetTypeConfig(tc TypeConfig) error {
+func (r *Reader) ConfigureTypes(tc TypeConfig, defaultPath string) error {
 	tr := typeRules{
 		descriptors: make(map[string]*zng.TypeRecord),
 		rules:       tc.Rules,
@@ -105,6 +90,7 @@ func (r *Reader) SetTypeConfig(tc TypeConfig) error {
 		tr:            tr,
 		stats:         r.stats.typeStats,
 		typeInfoCache: make(map[int]*typeInfo),
+		defaultPath:   defaultPath,
 	}
 	return nil
 }

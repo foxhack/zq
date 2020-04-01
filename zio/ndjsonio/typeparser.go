@@ -160,6 +160,9 @@ func (info *typeInfo) newRawFromJSON(data []byte) (zcode.Bytes, int, error) {
 			if iterErr != nil {
 				return nil, 0, iterErr
 			}
+			if _, ok := flatColumns[i].Type.(*zng.TypeSet); ok {
+				builder.TransformContainer(zng.NormalizeSet)
+			}
 			builder.EndContainer()
 		case jsonparser.NotExist, jsonparser.Null:
 			switch flatColumns[i].Type.(type) {
@@ -257,10 +260,6 @@ func (p *typeParser) parseObject(b []byte) (zng.Value, error) {
 			panic("unhandled error")
 		}
 		return zng.Value{}, err
-	}
-	if ti.flatDesc.TsCol < 0 {
-		incr(&p.stats.BadFormat)
-		return zng.Value{}, ErrBadFormat
 	}
 
 	raw, dropped, err := ti.newRawFromJSON(b)

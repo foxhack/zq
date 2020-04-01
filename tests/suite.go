@@ -4,6 +4,7 @@ import (
 	"github.com/brimsec/zq/pkg/test"
 	"github.com/brimsec/zq/tests/suite/diropt"
 	"github.com/brimsec/zq/tests/suite/errors"
+	"github.com/brimsec/zq/tests/suite/jsontype"
 	"github.com/brimsec/zq/tests/suite/pcap"
 	"github.com/brimsec/zq/tests/suite/utf8"
 	"github.com/brimsec/zq/tests/suite/zeek"
@@ -42,11 +43,17 @@ var commands = []test.Exec{
 }
 
 var scripts = []test.Shell{
+	errors.Combiner,
 	diropt.Test,
 	diropt.Test2,
+	jsontype.Test,
+	jsontype.TestInferPath,
+	jsontype.TestSet,
+	jsontype.TestNoTs,
 	pcap.Test1,
 	pcap.Test2,
 	pcap.Test3,
 	pcap.Test4,
 	pcap.Test5,
+	pcap.Test6,
 }

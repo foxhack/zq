@@ -13,7 +13,7 @@ import (
 	"github.com/brimsec/zq/pcap/pcapio"
 	"github.com/brimsec/zq/pkg/nano"
 	"github.com/brimsec/zq/zqd/api"
-	"github.com/brimsec/zq/zqd/packet"
+	"github.com/brimsec/zq/zqd/ingest"
 	"github.com/brimsec/zq/zqd/search"
 	"github.com/brimsec/zq/zqd/space"
 	"github.com/gorilla/mux"
@@ -46,6 +46,7 @@ func handleSearch(c *Core, w http.ResponseWriter, r *http.Request) {
 		out = search.NewBzngOutput(w)
 	default:
 		http.Error(w, fmt.Sprintf("unsupported output format: %s", format), http.StatusBadRequest)
+		return
 	}
 	// XXX This always returns bad request but should return status codes
 	// that reflect the nature of the returned error.
@@ -65,11 +66,11 @@ func handlePacketSearch(c *Core, w http.ResponseWriter, r *http.Request) {
 	if err := req.FromQuery(r.URL.Query()); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 	}
-	if s.PacketPath() == "" || !s.HasFile(packet.IndexFile) {
+	if s.PacketPath() == "" || !s.HasFile(ingest.PcapIndexFile) {
 		http.Error(w, "space has no pcaps", http.StatusNotFound)
 		return
 	}
-	index, err := pcap.LoadIndex(s.DataPath(packet.IndexFile))
+	index, err := pcap.LoadIndex(s.DataPath(ingest.PcapIndexFile))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -148,7 +149,7 @@ func handleSpaceGet(c *Core, w http.ResponseWriter, r *http.Request) {
 	}
 	info := &api.SpaceInfo{
 		Name:          s.Name(),
-		PacketSupport: s.HasFile(packet.IndexFile),
+		PacketSupport: s.HasFile(ingest.PcapIndexFile),
 		PacketPath:    s.PacketPath(),
 	}
 	if s.HasFile("all.bzng") {
@@ -241,7 +242,7 @@ func handlePacketPost(c *Core, w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	proc, err := packet.IngestFile(r.Context(), s, req.Path, c.ZeekLauncher, c.SortLimit)
+	proc, err := ingest.Pcap(r.Context(), s, req.Path, c.ZeekLauncher, c.SortLimit)
 	if err != nil {
 		if errors.Is(err, pcapio.ErrCorruptPcap) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -280,6 +281,7 @@ func handlePacketPost(c *Core, w http.ResponseWriter, r *http.Request) {
 			UpdateTime:     nano.Now(),
 			PacketSize:     proc.PcapSize,
 			PacketReadSize: proc.PcapReadSize(),
+			SnapshotCount:  proc.SnapshotCount(),
 			MinTime:        minTs,
 			MaxTime:        maxTs,
 		}
