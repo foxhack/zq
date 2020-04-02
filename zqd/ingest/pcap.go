@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -28,9 +27,8 @@ var (
 )
 
 const (
-	PcapIndexFile    = "packets.idx.json"
-	DefaultSortLimit = 10000000
-	tmpIngestDir     = ".tmp.ingest"
+	PcapIndexFile = "packets.idx.json"
+	tmpIngestDir  = ".tmp.ingest"
 )
 
 type Process struct {
@@ -38,7 +36,6 @@ type Process struct {
 	PcapSize  int64
 
 	space        *space.Space
-	sortLimit    int
 	snapshots    int32
 	pcapPath     string
 	pcapReadSize int64
@@ -53,7 +50,7 @@ type Process struct {
 // Process instance once zeek log files have started to materialize in a tmp
 // directory. If zeekExec is an empty string, this will attempt to resolve zeek
 // from $PATH.
-func Pcap(ctx context.Context, s *space.Space, pcap string, zlauncher zeek.Launcher, sortLimit int) (*Process, error) {
+func Pcap(ctx context.Context, s *space.Space, pcap string, zlauncher zeek.Launcher) (*Process, error) {
 	logdir := s.DataPath(tmpIngestDir)
 	if err := os.Mkdir(logdir, 0700); err != nil {
 		if os.IsExist(err) {
@@ -61,9 +58,6 @@ func Pcap(ctx context.Context, s *space.Space, pcap string, zlauncher zeek.Launc
 			return nil, ErrIngestProcessInFlight
 		}
 		return nil, err
-	}
-	if sortLimit == 0 {
-		sortLimit = DefaultSortLimit
 	}
 	info, err := os.Stat(pcap)
 	if err != nil {
@@ -78,7 +72,6 @@ func Pcap(ctx context.Context, s *space.Space, pcap string, zlauncher zeek.Launc
 		done:      make(chan struct{}),
 		snap:      make(chan struct{}),
 		zlauncher: zlauncher,
-		sortLimit: sortLimit,
 	}
 	if err = p.indexPcap(); err != nil {
 		os.Remove(p.space.DataPath(PcapIndexFile))
@@ -245,7 +238,7 @@ func (p *Process) createSnapshot(ctx context.Context) error {
 		return err
 	}
 	zw := bzngio.NewWriter(bzngfile)
-	program := fmt.Sprintf("sort -limit %d -r ts", p.sortLimit)
+	const program = "sort -r ts"
 	if err := search.Copy(ctx, []zbuf.Writer{zw}, zr, program); err != nil {
 		// If an error occurs here close and remove tmp bzngfile, lest we start
 		// leaking files and file descriptors.

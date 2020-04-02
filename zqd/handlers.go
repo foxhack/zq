@@ -292,7 +292,7 @@ func handlePacketPost(c *Core, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	proc, err := ingest.Pcap(ctx, s, req.Path, c.ZeekLauncher, c.SortLimit)
+	proc, err := ingest.Pcap(ctx, s, req.Path, c.ZeekLauncher)
 	if err != nil {
 		if errors.Is(err, pcapio.ErrCorruptPcap) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -382,7 +382,7 @@ func handleLogPost(c *Core, w http.ResponseWriter, r *http.Request) {
 	}
 	errCh := make(chan error)
 	go func() {
-		errCh <- ingest.Logs(ctx, s, req.Paths, req.JSONTypeConfig, c.SortLimit)
+		errCh <- ingest.Logs(ctx, s, req.Paths, req.JSONTypeConfig)
 	}()
 
 	w.Header().Set("Content-Type", "application/ndjson")

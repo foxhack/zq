@@ -2,7 +2,6 @@ package ingest
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -22,7 +21,7 @@ const allBzngTmpFile = space.AllBzngFile + ".tmp"
 
 // Logs ingests the provided list of files into the provided space.
 // Like ingest.Pcap, this overwrites any existing data in the space.
-func Logs(ctx context.Context, s *space.Space, paths []string, tc *ndjsonio.TypeConfig, sortLimit int) error {
+func Logs(ctx context.Context, s *space.Space, paths []string, tc *ndjsonio.TypeConfig) error {
 	ingestDir := s.DataPath(tmpIngestDir)
 	if err := os.Mkdir(ingestDir, 0700); err != nil {
 		// could be in use by pcap or log ingest
@@ -32,10 +31,7 @@ func Logs(ctx context.Context, s *space.Space, paths []string, tc *ndjsonio.Type
 		return err
 	}
 	defer os.RemoveAll(ingestDir)
-	if sortLimit == 0 {
-		sortLimit = DefaultSortLimit
-	}
-	if err := ingestLogs(ctx, s, paths, tc, sortLimit); err != nil {
+	if err := ingestLogs(ctx, s, paths, tc); err != nil {
 		os.Remove(s.DataPath(space.AllBzngFile))
 		return err
 	}
@@ -65,7 +61,7 @@ func configureJSONTypeReader(ndjr *ndjsonio.Reader, tc ndjsonio.TypeConfig, file
 	return ndjr.ConfigureTypes(tc, path)
 }
 
-func ingestLogs(ctx context.Context, s *space.Space, paths []string, tc *ndjsonio.TypeConfig, sortLimit int) error {
+func ingestLogs(ctx context.Context, s *space.Space, paths []string, tc *ndjsonio.TypeConfig) error {
 	zctx := resolver.NewContext()
 	var readers []zbuf.Reader
 	defer func() {
@@ -95,7 +91,7 @@ func ingestLogs(ctx context.Context, s *space.Space, paths []string, tc *ndjsoni
 		return err
 	}
 	zw := bzngio.NewWriter(bzngfile)
-	program := fmt.Sprintf("sort -limit %d -r ts | (filter *; head 1; tail 1)", sortLimit)
+	const program = "sort -r ts | (filter *; head 1; tail 1)"
 	var headW, tailW recWriter
 	if err := search.Copy(ctx, []zbuf.Writer{zw, &headW, &tailW}, reader, program); err != nil {
 		bzngfile.Close()
