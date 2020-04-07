@@ -20,10 +20,13 @@ import (
 	"github.com/brimsec/zq/zng/resolver"
 )
 
+// sortMemMaxBytes specifies the maximum amount of memory that each sort proc
+// will consume.
+var SortMemMaxBytes = 128 * 1024 * 1024
+
 type Sort struct {
 	Base
 	dir        int
-	limit      int
 	nullsFirst bool
 	fields     []ast.FieldExpr
 
@@ -35,10 +38,6 @@ type Sort struct {
 }
 
 func CompileSortProc(c *Context, parent Proc, node *ast.SortProc) (*Sort, error) {
-	limit := node.Limit
-	if limit == 0 {
-		limit = 128
-	}
 	fieldResolvers, err := expr.CompileFieldExprs(node.Fields)
 	if err != nil {
 		return nil, err
@@ -46,7 +45,6 @@ func CompileSortProc(c *Context, parent Proc, node *ast.SortProc) (*Sort, error)
 	return &Sort{
 		Base:               Base{Context: c, Parent: parent},
 		dir:                node.SortDir,
-		limit:              limit * 1024 * 1024,
 		nullsFirst:         node.NullsFirst,
 		fields:             node.Fields,
 		fieldResolvers:     fieldResolvers,
@@ -122,7 +120,7 @@ func (s *Sort) recordsForOneRun() ([]*zng.Record, bool, error) {
 			recs = append(recs, rec)
 		}
 		batch.Unref()
-		if nbytes >= s.limit {
+		if nbytes >= SortMemMaxBytes {
 			return recs, false, nil
 		}
 	}

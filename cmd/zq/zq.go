@@ -78,19 +78,20 @@ func init() {
 }
 
 type Command struct {
-	zctx           *resolver.Context
-	ifmt           string
-	ofmt           string
-	dir            string
-	path           string
-	jsonTypePath   string
-	jsonPathRegexp string
-	jsonTypeConfig *ndjsonio.TypeConfig
-	outputFile     string
-	verbose        bool
-	stats          bool
-	quiet          bool
-	showVersion    bool
+	zctx            *resolver.Context
+	ifmt            string
+	ofmt            string
+	dir             string
+	path            string
+	jsonTypePath    string
+	jsonPathRegexp  string
+	jsonTypeConfig  *ndjsonio.TypeConfig
+	outputFile      string
+	verbose         bool
+	stats           bool
+	quiet           bool
+	sortMemMaxBytes int
+	showVersion     bool
 	zio.Flags
 }
 
@@ -114,6 +115,7 @@ func New(f *flag.FlagSet) (charm.Command, error) {
 	f.BoolVar(&c.ShowFields, "F", false, "display field names in text output")
 	f.BoolVar(&c.EpochDates, "E", false, "display epoch timestamps in text output")
 	f.BoolVar(&c.UTF8, "U", false, "display zeek strings as UTF-8")
+	f.IntVar(&c.sortMemMaxBytes, "sortmem", proc.SortMemMaxBytes, "maximum memory used by sort, in bytes")
 	f.BoolVar(&c.showVersion, "version", false, "print version and exit")
 	return c, nil
 }
@@ -207,6 +209,10 @@ func (c *Command) Run(args []string) error {
 		}
 		c.jsonTypeConfig = tc
 	}
+	if c.sortMemMaxBytes <= 0 {
+		return errors.New("sortmem value must be greater than zero")
+	}
+	proc.SortMemMaxBytes = c.sortMemMaxBytes
 	paths := args
 	var query ast.Proc
 	var err error
