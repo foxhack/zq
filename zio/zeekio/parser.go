@@ -3,6 +3,7 @@ package zeekio
 import (
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"strings"
 
 	"github.com/brimsec/zq/zbuf"
@@ -233,6 +234,7 @@ func (p *Parser) setDescriptor() error {
 	// add descriptor and _path, form the columns, and lookup the td
 	// in the space's descriptor table.
 	if len(p.columns) == 0 || p.needfields || p.needtypes {
+		debug.PrintStack()
 		return ErrBadRecordDef
 	}
 
