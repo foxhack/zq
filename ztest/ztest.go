@@ -108,6 +108,7 @@ import (
 	"github.com/brimsec/zq/driver"
 	"github.com/brimsec/zq/emitter"
 	"github.com/brimsec/zq/pkg/nano"
+	"github.com/brimsec/zq/pkg/test"
 	"github.com/brimsec/zq/scanner"
 	"github.com/brimsec/zq/zbuf"
 	"github.com/brimsec/zq/zio"
@@ -115,6 +116,7 @@ import (
 	"github.com/brimsec/zq/zng/resolver"
 	"github.com/brimsec/zq/zql"
 	"github.com/pmezard/go-difflib/difflib"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
@@ -143,7 +145,8 @@ func Run(t *testing.T, dirname string) {
 		if !strings.HasSuffix(filename, dotyaml) {
 			continue
 		}
-		t.Run(strings.TrimSuffix(filename, dotyaml), func(t *testing.T) {
+		testname := strings.TrimSuffix(filename, dotyaml)
+		t.Run(testname, func(t *testing.T) {
 			t.Parallel()
 			// An absolute path in errors makes the offending file easier to find.
 			filename, err := filepath.Abs(filepath.Join(dirname, filename))
@@ -154,21 +157,22 @@ func Run(t *testing.T, dirname string) {
 			if err != nil {
 				t.Fatalf("%s: %s", filename, err)
 			}
-			run(t, filename, zq, zt)
+			run(t, testname, filename, zq, zt)
 		})
 	}
 }
 
 type File struct {
 	Name   string `yaml:"name"`
-	Data   Inputs `yaml:"data,omitempty"`
+	Data   string `yaml:"data,omitempty"`
 	Hex    string `yaml:"hex,omitempty"`
 	Source string `yaml:"source,omitempty"`
+	data   []byte
 }
 
 func (f *File) check() error {
 	cnt := 0
-	if f.Data != nil {
+	if f.Data != "" {
 		cnt++
 	}
 	if f.Hex != "" {
@@ -181,6 +185,24 @@ func (f *File) check() error {
 		return fmt.Errorf("%s: must specify exactly one of data, hex, or source", f.Name)
 	}
 	return nil
+}
+
+func (f *File) load() error {
+	if f.Data != "" {
+		f.data = []byte(f.Data)
+		return nil
+	}
+	if f.Hex != "" {
+		s, err := decodeHex(f.Hex)
+		f.data = []byte(s)
+		return err
+	}
+	if f.Source != "" {
+		var err error
+		f.data, err = ioutil.ReadFile(f.Source)
+		return err
+	}
+	return fmt.Errorf("%s: no data source", f.Name)
 }
 
 // ZTest defines a ztest.
@@ -313,9 +335,16 @@ func FromYAMLFile(filename string) (*ZTest, error) {
 	return &z, nil
 }
 
-func run(t *testing.T, filename, zq string, zt *ZTest) {
+func checkStdErr(t *testing.T, filename string, zt *ZTest, stderr string, err error) {
+}
+
+func run(t *testing.T, testname, filename, zq string, zt *ZTest) {
 	if err := zt.check(); err != nil {
 		t.Fatalf("%s: bad yaml format: %s", filename, err)
+	}
+	if zt.Script != "" {
+		runsh(t, testname, filename, zt)
+		return
 	}
 	out, errout, err := runzq(zq, zt.ZQL, zt.OutputFormat, zt.OutputFlags, zt.Input...)
 	if err != nil {
@@ -362,6 +391,63 @@ func run(t *testing.T, filename, zq string, zt *ZTest) {
 		})
 		t.Fatalf("%s: expected and actual warnings differ:\n%s", filename, diff)
 	}
+}
+
+func runsh(t *testing.T, testname, filename string, zt *ZTest) error {
+	type Shell struct {
+		Name             string
+		Script           string
+		Input            []File
+		Expected         []File
+		ExpectedStderrRE string
+	}
+	config := test.Shell{
+		Name:             testname,
+		Script:           zt.Script,
+		ExpectedStderrRE: zt.ErrorRE,
+	}
+	for _, f := range zt.Inputs {
+		if err := f.load(); err != nil {
+			return err
+		}
+		config.Input = append(config.Input, test.File{Name: f.Name, Data: string(f.data)})
+	}
+	for _, f := range zt.Outputs {
+		if err := f.load(); err != nil {
+			return err
+		}
+		config.Expected = append(config.Expected, test.File{Name: f.Name, Data: string(f.data)})
+	}
+	shell := test.NewShellTest(config)
+	path := "../dist"        //XXX
+	RootDir := "./test-root" //XXX
+	stdout, stderr, err := shell.Run(RootDir, path)
+	if err != nil {
+		if zt.errRegex != nil {
+			if !zt.errRegex.Match([]byte(stderr)) {
+				t.Fatalf("%s: error doesn't match expected error regex: %s %s", filename, zt.ErrorRE, stderr)
+			}
+		} else {
+			if stdout != "" {
+				stdout = "\noutput:\n" + stdout
+			}
+			t.Fatalf("%s: %s%s", filename, err, stdout)
+		}
+	} else if zt.errRegex != nil {
+		t.Fatalf("%s: no error when expecting error regex: %s", filename, zt.ErrorRE)
+	}
+	for _, file := range zt.Outputs {
+		actual, err := shell.Read(file.Name)
+		assert.NoError(t, err)
+		assert.Exactly(t, file.Data, actual, "Wrong shell script results")
+	}
+	if !t.Failed() {
+		// Remove the testdir on success.  If test fails,  we
+		// leave it behind in testroot for debugging.  These
+		// failed test directories have to be manually removed.
+		shell.Cleanup()
+	}
+	return nil
 }
 
 // Run runs the query in ZQL over inputs and returns the output formatted
