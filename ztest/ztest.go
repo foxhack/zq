@@ -31,6 +31,38 @@
 //      COUNT
 //      2
 //
+// In the "shell" variation, arbitrary bash scripts can run chaining together
+// any of zq/cmd tools in addition to zq.  Here, the yaml sets up a collection
+// of input files and stdin, the script runs, and the test driver compares expected
+// output files, stdout, and stderr with data in the yaml spec.  In this case,
+// instead of specifying, "zql", "input", "output", you specify the yaml arrays
+// "inputs" and "outputs" --- where each array element defines a file, stdin,
+// stdout, or stderr --- and a "script" that specifies a multi-line yaml string
+// defining the script, e.g.,
+//
+// inputs:
+//    - name: in1.zng
+//      data: |
+//         #0:record[i:int64]
+//         0:[1;]
+//    - name: stdin
+//      data: |
+//         #0:record[i:int64]
+//         0:[2;]
+// script: |
+//    zq -o out.zng in1.zng -
+//    zq -o count.zng "count()" out.zng
+// outputs:
+//    - name: out.zng
+//      data: |
+//         #0:record[i:int64]
+//         0:[1;]
+//         0:[2;]
+//    - name: count.zng
+//      data: |
+//         #0:record[count:uint64]
+//         0:[2;]
+//
 // Ztest YAML files for a package should reside in a subdirectory named
 // testdata/ztest.
 //
@@ -50,8 +82,9 @@
 //
 //     func TestZTest(t *testing.T) { ztest.Run(t, "testdata/ztest") }
 //
-// If the ZTEST_ZQ environment variable is unset or empty, Run runs ztests in
-// the current process.  Otherwise, Run run each ztest in a separate process
+// If the ZTEST_ZQ environment variable is unset or empty and the test
+// is not a script test, Run runs ztests in
+// the current process.  Otherwise, Run runs each ztest in a separate process
 // using the zq executable specified by ZTEST_ZQ.
 package ztest
 
@@ -93,7 +126,7 @@ import (
 func Run(t *testing.T, dirname string) {
 	zq := os.Getenv("ZTEST_ZQ")
 	if zq != "" {
-		if out, _, err := run(zq, "help", "", ""); err != nil {
+		if out, _, err := runzq(zq, "help", "", ""); err != nil {
 			if out != "" {
 				out = fmt.Sprintf(" with output %q", out)
 			}
@@ -121,59 +154,39 @@ func Run(t *testing.T, dirname string) {
 			if err != nil {
 				t.Fatalf("%s: %s", filename, err)
 			}
-			out, errout, err := run(zq, zt.ZQL, zt.OutputFormat, zt.OutputFlags, zt.Input...)
-			if err != nil {
-				if zt.errRegex != nil {
-					if !zt.errRegex.Match([]byte(errout)) {
-						t.Fatalf("%s: error doesn't match expected error regex: %s %s", filename, zt.ErrorRE, errout)
-					}
-				} else {
-					if out != "" {
-						out = "\noutput:\n" + out
-					}
-					t.Fatalf("%s: %s%s", filename, err, out)
-				}
-			} else if zt.errRegex != nil {
-				t.Fatalf("%s: no error when expecting error regex: %s", filename, zt.ErrorRE)
-			}
-			expectedOut, oerr := zt.getOutput()
-			require.NoError(t, oerr)
-			if out != expectedOut {
-				a := expectedOut
-				b := out
-
-				if !utf8.ValidString(a) {
-					a = encodeHex(a)
-					b = encodeHex(b)
-				}
-
-				diff, _ := difflib.GetUnifiedDiffString(difflib.UnifiedDiff{
-					A:        difflib.SplitLines(a),
-					FromFile: "expected",
-					B:        difflib.SplitLines(b),
-					ToFile:   "actual",
-					Context:  5,
-				})
-				t.Fatalf("%s: expected and actual outputs differ:\n%s", filename, diff)
-			}
-			if err == nil && errout != zt.Warnings {
-				diff, _ := difflib.GetUnifiedDiffString(difflib.UnifiedDiff{
-					A:        difflib.SplitLines(zt.Warnings),
-					FromFile: "expected",
-					B:        difflib.SplitLines(errout),
-					ToFile:   "actual",
-					Context:  5,
-				})
-				t.Fatalf("%s: expected and actual warnings differ:\n%s", filename, diff)
-			}
+			run(t, filename, zq, zt)
 		})
 	}
 }
 
+type File struct {
+	Name   string `yaml:"name"`
+	Data   Inputs `yaml:"data,omitempty"`
+	Hex    string `yaml:"hex,omitempty"`
+	Source string `yaml:"source,omitempty"`
+}
+
+func (f *File) check() error {
+	cnt := 0
+	if f.Data != nil {
+		cnt++
+	}
+	if f.Hex != "" {
+		cnt++
+	}
+	if f.Source != "" {
+		cnt++
+	}
+	if cnt != 1 {
+		return fmt.Errorf("%s: must specify exactly one of data, hex, or source", f.Name)
+	}
+	return nil
+}
+
 // ZTest defines a ztest.
 type ZTest struct {
-	ZQL          string `yaml:"zql"`
-	Input        Inputs `yaml:"input"`
+	ZQL          string `yaml:"zql,omitempty"`
+	Input        Inputs `yaml:"input,omitempty"`
 	OutputFormat string `yaml:"output-format,omitempty"`
 	Output       string `yaml:"output,omitempty"`
 	OutputHex    string `yaml:"outputHex,omitempty"`
@@ -181,6 +194,35 @@ type ZTest struct {
 	ErrorRE      string `yaml:"errorRE"`
 	errRegex     *regexp.Regexp
 	Warnings     string `yaml:"warnings",omitempty"`
+	// shell mode params
+	Script  string `yaml:"script,omitempty"`
+	Inputs  []File `yaml:"inputs,omitempty"`
+	Outputs []File `yaml:"outputs,omitempty"`
+}
+
+func (z *ZTest) check() error {
+	if z.ZQL != "" {
+		if z.Input == nil {
+			return errors.New("missing input field")
+		}
+	} else if z.Script != "" {
+		if z.Outputs == nil {
+			return errors.New("missing outputs field script mode")
+		}
+		for _, f := range z.Inputs {
+			if err := f.check(); err != nil {
+				return err
+			}
+		}
+		for _, f := range z.Outputs {
+			if err := f.check(); err != nil {
+				return err
+			}
+		}
+	} else {
+		return errors.New("a zql or script field must be defined")
+	}
+	return nil
 }
 
 // Inputs is an array of strings. Its only purpose is to support parsing of
@@ -271,12 +313,63 @@ func FromYAMLFile(filename string) (*ZTest, error) {
 	return &z, nil
 }
 
+func run(t *testing.T, filename, zq string, zt *ZTest) {
+	if err := zt.check(); err != nil {
+		t.Fatalf("%s: bad yaml format: %s", filename, err)
+	}
+	out, errout, err := runzq(zq, zt.ZQL, zt.OutputFormat, zt.OutputFlags, zt.Input...)
+	if err != nil {
+		if zt.errRegex != nil {
+			if !zt.errRegex.Match([]byte(errout)) {
+				t.Fatalf("%s: error doesn't match expected error regex: %s %s", filename, zt.ErrorRE, errout)
+			}
+		} else {
+			if out != "" {
+				out = "\noutput:\n" + out
+			}
+			t.Fatalf("%s: %s%s", filename, err, out)
+		}
+	} else if zt.errRegex != nil {
+		t.Fatalf("%s: no error when expecting error regex: %s", filename, zt.ErrorRE)
+	}
+	expectedOut, oerr := zt.getOutput()
+	require.NoError(t, oerr)
+	if out != expectedOut {
+		a := expectedOut
+		b := out
+
+		if !utf8.ValidString(a) {
+			a = encodeHex(a)
+			b = encodeHex(b)
+		}
+
+		diff, _ := difflib.GetUnifiedDiffString(difflib.UnifiedDiff{
+			A:        difflib.SplitLines(a),
+			FromFile: "expected",
+			B:        difflib.SplitLines(b),
+			ToFile:   "actual",
+			Context:  5,
+		})
+		t.Fatalf("%s: expected and actual outputs differ:\n%s", filename, diff)
+	}
+	if err == nil && errout != zt.Warnings {
+		diff, _ := difflib.GetUnifiedDiffString(difflib.UnifiedDiff{
+			A:        difflib.SplitLines(zt.Warnings),
+			FromFile: "expected",
+			B:        difflib.SplitLines(errout),
+			ToFile:   "actual",
+			Context:  5,
+		})
+		t.Fatalf("%s: expected and actual warnings differ:\n%s", filename, diff)
+	}
+}
+
 // Run runs the query in ZQL over inputs and returns the output formatted
 // according to outputFormat. inputs may be in any format recognized by "zq -i
 // auto" and maybe be gzip-compressed.  outputFormat may be any string accepted
 // by "zq -f".  If zq is empty, the query runs in the current process.  If zq is
 // not empty, it specifies a zq executable that will be used to run the query.
-func run(zq, ZQL, outputFormat, outputFlags string, inputs ...string) (out string, warnOrError string, err error) {
+func runzq(zq, ZQL, outputFormat, outputFlags string, inputs ...string) (out string, warnOrError string, err error) {
 	var outbuf bytes.Buffer
 	var errbuf bytes.Buffer
 	if zq != "" {
